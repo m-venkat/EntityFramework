@@ -2,8 +2,10 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Reflection;
 using JetBrains.Annotations;
 using Microsoft.EntityFrameworkCore.Extensions.Internal;
 using Microsoft.EntityFrameworkCore.Internal;
@@ -175,6 +177,21 @@ namespace Microsoft.EntityFrameworkCore.Query.Internal
 
             VisitQueryModel(subQueryModel);
 
+            // no groupby and no distinct
+            var emptyQueryModelWithFlattenableResultOperatorInSubquery
+                = !queryModel.BodyClauses.Any()
+                  && subQueryModel.ResultOperators.All(
+                    ro => ro is CastResultOperator
+                        || ro is ConcatResultOperator
+                        || ro is DefaultIfEmptyResultOperator
+                        || ro is ExceptResultOperator
+                        || ro is IntersectResultOperator
+                        || ro is OfTypeResultOperator
+                        || ro is ReverseResultOperator
+                        || ro is SkipResultOperator
+                        || ro is TakeResultOperator
+                        || ro is UnionResultOperator);
+
             var subqueryInMainClauseWithoutResultOperatorsProjectingItsMainClause
                 = fromClause is MainFromClause
                   && !subQueryModel.ResultOperators.Any()
@@ -185,8 +202,7 @@ namespace Microsoft.EntityFrameworkCore.Query.Internal
                 && !subQueryModel.BodyClauses.Any(bc => bc is OrderByClause)
                 || queryModel.IsIdentityQuery()
                 && !queryModel.ResultOperators.Any()
-                || !queryModel.BodyClauses.Any()
-                && !subQueryModel.ResultOperators.Any(ro => ro is GroupResultOperator)
+                || emptyQueryModelWithFlattenableResultOperatorInSubquery
                 || subqueryInMainClauseWithoutResultOperatorsProjectingItsMainClause)
             {
                 string itemName;
@@ -210,14 +226,26 @@ namespace Microsoft.EntityFrameworkCore.Query.Internal
 
                 fromClause.CopyFromSource(fromClauseData);
 
+                var newExpression = subQueryExpression.QueryModel.SelectClause.Selector;
+                var newExpressionTypeInfo = newExpression.Type.GetTypeInfo();
+                var castResultOperatorTypes = subQueryModel.ResultOperators.OfType<CastResultOperator>().Select(cre => cre.CastItemType).ToList();
+                if (castResultOperatorTypes.Any())
+                {
+                    var type = castResultOperatorTypes.LastOrDefault(ti => newExpressionTypeInfo.IsAssignableFrom(ti.GetTypeInfo()));
+                    if (type != null && type != newExpression.Type)
+                    {
+                        newExpression = Expression.Convert(newExpression, type);
+                    }
+                }
+
                 UpdateQuerySourceMapping(
                     queryModel,
                     fromClause,
-                    subQueryExpression.QueryModel.SelectClause.Selector);
+                    newExpression);
 
                 InsertBodyClauses(subQueryExpression.QueryModel.BodyClauses, queryModel, destinationIndex);
 
-                foreach (var resultOperator in subQueryModel.ResultOperators.Reverse())
+                foreach (var resultOperator in subQueryModel.ResultOperators.Where(ro => !(ro is CastResultOperator)).Reverse())
                 {
                     queryModel.ResultOperators.Insert(0, resultOperator);
                 }
@@ -268,6 +296,17 @@ namespace Microsoft.EntityFrameworkCore.Query.Internal
                             is IAsyncQueryProvider entityQueryProvider)
                         {
                             queryModel.ResultOperators.RemoveAt(index);
+                            if (index > 0)
+                            {
+                                // also remove all Cast operators that came before OfType that is being processed
+                                for (var i = index - 1; i >= 0 ; i--)
+                                {
+                                    if (queryModel.ResultOperators[i] is CastResultOperator)
+                                    {
+                                        queryModel.ResultOperators.RemoveAt(i);
+                                    }
+                                }
+                            }
 
                             var newMainFromClause
                                 = new MainFromClause(
