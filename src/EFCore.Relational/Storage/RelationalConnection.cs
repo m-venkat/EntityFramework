@@ -193,7 +193,11 @@ namespace Microsoft.EntityFrameworkCore.Storage
                     Dependencies.TransactionLogger,
                     transactionOwned: true);
 
-            Dependencies.TransactionLogger.TransactionStarted(this, dbTransaction);
+            Dependencies.TransactionLogger.TransactionStarted(
+                this, 
+                dbTransaction, 
+                CurrentTransaction.TransactionId,
+                Stopwatch.GetTimestamp());
 
             return CurrentTransaction;
         }
@@ -226,7 +230,11 @@ namespace Microsoft.EntityFrameworkCore.Storage
                     Dependencies.TransactionLogger, 
                     transactionOwned: false);
 
-                Dependencies.TransactionLogger.TransactionUsed(this, transaction);
+                Dependencies.TransactionLogger.TransactionUsed(
+                    this, 
+                    transaction, 
+                    CurrentTransaction.TransactionId, 
+                    Stopwatch.GetTimestamp());
             }
 
             return CurrentTransaction;
@@ -276,10 +284,8 @@ namespace Microsoft.EntityFrameworkCore.Storage
             if (_connection.Value.State != ConnectionState.Open)
             {
                 var startTimestamp = Stopwatch.GetTimestamp();
-                var instanceId = Guid.NewGuid();
                 Dependencies.ConnectionLogger.ConnectionOpening(
                     this,
-                    instanceId,
                     startTimestamp,
                     async: false);
 
@@ -291,7 +297,6 @@ namespace Microsoft.EntityFrameworkCore.Storage
                     var currentTimestamp = Stopwatch.GetTimestamp();
                     Dependencies.ConnectionLogger.ConnectionOpened(
                         this,
-                        instanceId,
                         startTimestamp, 
                         currentTimestamp,
                         async: false);
@@ -302,7 +307,6 @@ namespace Microsoft.EntityFrameworkCore.Storage
                     Dependencies.ConnectionLogger.ConnectionError(
                         this, 
                         e,
-                        instanceId,
                         startTimestamp,
                         currentTimestamp,
                         async: false);
@@ -347,10 +351,8 @@ namespace Microsoft.EntityFrameworkCore.Storage
             if (_connection.Value.State != ConnectionState.Open)
             {
                 var startTimestamp = Stopwatch.GetTimestamp();
-                var instanceId = Guid.NewGuid();
                 Dependencies.ConnectionLogger.ConnectionOpening(
                     this,
-                    instanceId,
                     startTimestamp,
                     async: true);
 
@@ -362,7 +364,6 @@ namespace Microsoft.EntityFrameworkCore.Storage
                     var currentTimestamp = Stopwatch.GetTimestamp();
                     Dependencies.ConnectionLogger.ConnectionOpened(
                         this,
-                        instanceId,
                         startTimestamp,
                         currentTimestamp,
                         async: true);
@@ -373,7 +374,6 @@ namespace Microsoft.EntityFrameworkCore.Storage
                     Dependencies.ConnectionLogger.ConnectionError(
                         this,
                         e,
-                        instanceId,
                         startTimestamp,
                         currentTimestamp,
                         async: true);
@@ -399,7 +399,7 @@ namespace Microsoft.EntityFrameworkCore.Storage
 #if NET46
             if (Transaction.Current != null)
             {
-                Dependencies.TransactionLogger.AmbientTransactionWarning(this);
+                Dependencies.TransactionLogger.AmbientTransactionWarning(this, Stopwatch.GetTimestamp());
             }
 #elif NETSTANDARD1_3
 #else
@@ -422,12 +422,7 @@ namespace Microsoft.EntityFrameworkCore.Storage
                 if (_connection.Value.State != ConnectionState.Closed)
                 {
                     var startTimestamp = Stopwatch.GetTimestamp();
-                    var instanceId = Guid.NewGuid();
-                    Dependencies.ConnectionLogger.ConnectionClosing(
-                        this,
-                        instanceId,
-                        startTimestamp,
-                        async: false);
+                    Dependencies.ConnectionLogger.ConnectionClosing(this, startTimestamp);
 
                     try
                     {
@@ -435,12 +430,7 @@ namespace Microsoft.EntityFrameworkCore.Storage
                         wasClosed = true;
 
                         var currentTimestamp = Stopwatch.GetTimestamp();
-                        Dependencies.ConnectionLogger.ConnectionClosed(
-                            this,
-                            instanceId,
-                            startTimestamp,
-                            currentTimestamp,
-                            async: false);
+                        Dependencies.ConnectionLogger.ConnectionClosed(this, startTimestamp, currentTimestamp);
                     }
                     catch (Exception e)
                     {
@@ -448,7 +438,6 @@ namespace Microsoft.EntityFrameworkCore.Storage
                         Dependencies.ConnectionLogger.ConnectionError(
                             this,
                             e,
-                            instanceId,
                             startTimestamp,
                             currentTimestamp,
                             async: false);
