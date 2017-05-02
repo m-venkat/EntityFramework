@@ -1,9 +1,11 @@
 <Project>
     <PropertyGroup>
         <CoreOnly Condition="'$(CoreOnly)' == ''">False</CoreOnly>
+        <AppVeyor Condition="'$(AppVeyor)' == ''">False</AppVeyor>
     </PropertyGroup>
     <ItemGroup>
         <ExcludeFromTest Include="$(RepositoryRoot)test\EFCore.Benchmarks.EF6\*.csproj" Condition="'$(OS)' != 'Windows_NT' OR '$(CoreOnly)' == 'True'" />
         <ExcludeFromTest Include="$(RepositoryRoot)test\EFCore.Benchmarks\*.csproj" />
+        <ExcludeFromTest Include="$(RepositoryRoot)test\EFCore.SqlServer.FunctionalTests\*.csproj" Condition="'$(TargetFrameworkIdentifier)'=='.NETFramework' AND '$(AppVeyor)' == 'True'" />
     </ItemGroup>
 </Project>
